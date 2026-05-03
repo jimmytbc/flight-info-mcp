@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local secrets - never commit
+.env
+.env.local
+*.pem
+*.key
+
+# OS / IDE / test scratch
+.DS_Store
+.pytest_cache/
+.idea/
+.vscode/
+*.swp
