@@ -152,6 +152,72 @@ async def test_arrival_local_uses_destination_iana_tz_when_wire_is_utc():
 
 
 @respx.mock
+async def test_flight_iata_with_internal_space_is_normalised():
+    """BUG-01 regression: ``TR 983`` must reach upstream as ``TR983``."""
+    route = respx.get(AVI_URL).respond(200, json={"data": []})
+
+    async with AviationstackClient(api_key="k") as av:
+        await call_get_departure_info({"flight_iata": "TR 983"}, aviationstack=av)
+
+    assert route.called
+    request = route.calls.last.request
+    assert "flight_iata=TR983" in str(request.url)
+    assert "flight_iata=TR%20983" not in str(request.url)
+
+
+@respx.mock
+async def test_flight_iata_with_tab_is_normalised():
+    """BUG-01: tab and other whitespace characters also collapsed."""
+    route = respx.get(AVI_URL).respond(200, json={"data": []})
+
+    async with AviationstackClient(api_key="k") as av:
+        await call_get_departure_info({"flight_iata": "ZH\t227"}, aviationstack=av)
+
+    request = route.calls.last.request
+    assert "flight_iata=ZH227" in str(request.url)
+
+
+@respx.mock
+async def test_dep_iata_with_internal_space_is_normalised():
+    """BUG-01: same normalisation applied to dep_iata."""
+    route = respx.get(AVI_URL).respond(200, json={"data": []})
+
+    async with AviationstackClient(api_key="k") as av:
+        await call_get_departure_info(
+            {"flight_iata": "BA117", "dep_iata": "L HR"}, aviationstack=av
+        )
+
+    request = route.calls.last.request
+    assert "dep_iata=LHR" in str(request.url)
+
+
+@respx.mock
+async def test_arr_iata_with_internal_space_is_normalised():
+    """BUG-01: same normalisation applied to arr_iata."""
+    route = respx.get(AVI_URL).respond(200, json={"data": []})
+
+    async with AviationstackClient(api_key="k") as av:
+        await call_get_arrival_info(
+            {"flight_iata": "BA117", "arr_iata": "J FK"}, aviationstack=av
+        )
+
+    request = route.calls.last.request
+    assert "arr_iata=JFK" in str(request.url)
+
+
+@respx.mock
+async def test_outer_whitespace_still_stripped():
+    """Pre-existing behaviour kept: leading/trailing whitespace collapsed too."""
+    route = respx.get(AVI_URL).respond(200, json={"data": []})
+
+    async with AviationstackClient(api_key="k") as av:
+        await call_get_departure_info({"flight_iata": "  BA117  "}, aviationstack=av)
+
+    request = route.calls.last.request
+    assert "flight_iata=BA117" in str(request.url)
+
+
+@respx.mock
 async def test_enrichment_falls_back_when_record_lacks_timezone():
     """Defensive: if upstream record has no ``timezone`` field, enrichment
     falls back to the wire value (no crash, no fabricated tz)."""

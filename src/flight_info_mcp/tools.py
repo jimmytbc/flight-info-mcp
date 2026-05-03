@@ -237,12 +237,28 @@ def register_tools(
 # --- helpers ----------------------------------------------------------------
 
 
+def _normalise_iata(value: str) -> str:
+    """Collapse every whitespace character from an IATA token.
+
+    Aviationstack expects no internal whitespace - "TR 983" returns nothing,
+    while "TR983" matches. LLM callers (and humans) frequently add a space
+    between airline code and number; we normalise that here at the input
+    boundary so the upstream call always sees the canonical form.
+    """
+    return "".join(value.split())
+
+
 def _require_flight_iata(args: dict[str, Any]) -> str:
-    """Defensive - SDK already validated the schema before this function runs."""
+    """Defensive - SDK already validated the schema before this function runs.
+
+    Whitespace inside the flight number is collapsed so values like ``TR 983``
+    or tab-containing variants get normalised to the Aviationstack-canonical
+    ``TR983`` before the upstream call.
+    """
     val = args.get("flight_iata")
     if not isinstance(val, str) or not val.strip():
         raise ValueError("flight_iata must be a non-empty string")
-    return val.strip()
+    return _normalise_iata(val)
 
 
 def _flight_filters(
@@ -255,12 +271,15 @@ def _flight_filters(
     supplied that field, it's forwarded to Aviationstack as a narrowing filter
     - this is what distinguishes a "with airport context" query from a
     "without airport context" one.
+
+    Whitespace is collapsed from the airport code as well, on the same
+    rationale as ``flight_iata``.
     """
     filters: dict[str, str] = {"flight_iata": _require_flight_iata(args)}
     if airport_field:
         airport_value = args.get(airport_field)
         if isinstance(airport_value, str) and airport_value.strip():
-            filters[airport_field] = airport_value.strip().upper()
+            filters[airport_field] = _normalise_iata(airport_value).upper()
     return filters
 
 
