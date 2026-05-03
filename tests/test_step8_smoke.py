@@ -111,8 +111,9 @@ async def test_personal_use_scenario_returns_single_record_with_both_times():
     assert len(out["flights"]) == 1
     flight = out["flights"][0]
     sched = flight["departure_times"]["scheduled"]
+    # Europe/London in May = BST = UTC+1; wire was 07:00 UTC.
     assert sched["utc"] == "2026-05-03T07:00:00Z"
-    assert sched["local"] == "2026-05-03T07:00:00+00:00"
+    assert sched["local"] == "2026-05-03T08:00:00+01:00"
     assert out["user_localised"] is False
 
 

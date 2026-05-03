@@ -279,16 +279,23 @@ def _first_icao24(records: list[dict[str, Any]]) -> str | None:
 def _enrich_record(record: dict[str, Any], *, leg: str) -> dict[str, Any]:
     """Shallow-copy ``record`` and append a ``<leg>_times`` block.
 
-    Hard invariant 2 forbids editing upstream content; this only adds a new
-    top-level key alongside the pass-through fields.
+    The IANA timezone in ``<leg>.timezone`` is threaded through to
+    ``enrich_iso_time`` so the airport-local representation reflects the
+    airport's actual tz, not whatever offset the wire happened to carry.
+
+    Pass-through invariant intact: this only adds a new top-level key
+    alongside the original record fields; nested dicts are untouched.
     """
     out = dict(record)
     leg_block = record.get(leg)
     if isinstance(leg_block, dict):
+        airport_tz = leg_block.get("timezone")
+        if not isinstance(airport_tz, str) or not airport_tz.strip():
+            airport_tz = None
         out[f"{leg}_times"] = {
-            "scheduled": enrich_iso_time(leg_block.get("scheduled")),
-            "estimated": enrich_iso_time(leg_block.get("estimated")),
-            "actual": enrich_iso_time(leg_block.get("actual")),
+            "scheduled": enrich_iso_time(leg_block.get("scheduled"), airport_tz=airport_tz),
+            "estimated": enrich_iso_time(leg_block.get("estimated"), airport_tz=airport_tz),
+            "actual": enrich_iso_time(leg_block.get("actual"), airport_tz=airport_tz),
         }
     return out
 

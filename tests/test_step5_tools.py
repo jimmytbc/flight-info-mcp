@@ -87,11 +87,12 @@ async def test_departure_info_returns_utc_and_local_times():
     assert len(out["flights"]) == 1
     flight = out["flights"][0]
     sched = flight["departure_times"]["scheduled"]
+    # Europe/London in May = BST = UTC+1; wire was 07:00 UTC, local is 08:00 BST.
     assert sched == {
         "utc": "2026-05-03T07:00:00Z",
-        "local": "2026-05-03T07:00:00+00:00",
+        "local": "2026-05-03T08:00:00+01:00",
     }
-    # Pass-through preserved (hard invariant 2)
+    # Pass-through preserved (no editing of upstream content).
     assert flight["departure"] == _av_record()["departure"]
     assert out["user_localised"] is False
 
@@ -105,7 +106,7 @@ async def test_arrival_info_returns_utc_and_local_times():
 
     flight = out["flights"][0]
     sched = flight["arrival_times"]["scheduled"]
-    # 14:00 EDT (-04:00) == 18:00 UTC
+    # 14:00 EDT (-04:00) == 18:00 UTC; wire offset agrees with the IANA tz.
     assert sched == {
         "utc": "2026-05-03T18:00:00Z",
         "local": "2026-05-03T14:00:00-04:00",
@@ -113,6 +114,66 @@ async def test_arrival_info_returns_utc_and_local_times():
     # `actual: None` propagates as None enrichment
     assert flight["arrival_times"]["actual"] is None
     assert out["user_localised"] is False
+
+
+@respx.mock
+async def test_arrival_local_uses_destination_iana_tz_when_wire_is_utc():
+    """BUG-02 regression: when the upstream wire timestamp carries +00:00
+    but the destination is in another timezone, ``arrival_times.local`` must
+    reflect the destination IANA tz, not the wire offset."""
+    sin_record = {
+        "flight_date": "2026-05-03",
+        "flight_status": "active",
+        "departure": {
+            "airport": "Xiamen", "iata": "XMN", "timezone": "Asia/Shanghai",
+            "scheduled": "2026-05-03T10:00:00+00:00",
+        },
+        "arrival": {
+            "airport": "Singapore Changi", "iata": "SIN",
+            "timezone": "Asia/Singapore",
+            "scheduled": "2026-05-03T14:00:00+00:00",
+            "estimated": "2026-05-03T14:00:00+00:00",
+            "actual": None,
+        },
+        "airline": {"iata": "MF"},
+        "flight": {"iata": "MF8675"},
+        "aircraft": {"icao24": "abcd12"},
+    }
+    respx.get(AVI_URL).respond(200, json={"data": [sin_record]})
+
+    async with AviationstackClient(api_key="k") as av:
+        out = await call_get_arrival_info({"flight_iata": "MF8675"}, aviationstack=av)
+
+    sched = out["flights"][0]["arrival_times"]["scheduled"]
+    assert sched["utc"] == "2026-05-03T14:00:00Z"
+    assert sched["local"] == "2026-05-03T22:00:00+08:00"
+    # Pass-through: the raw upstream string is unchanged.
+    assert out["flights"][0]["arrival"]["scheduled"] == "2026-05-03T14:00:00+00:00"
+
+
+@respx.mock
+async def test_enrichment_falls_back_when_record_lacks_timezone():
+    """Defensive: if upstream record has no ``timezone`` field, enrichment
+    falls back to the wire value (no crash, no fabricated tz)."""
+    record = {
+        "departure": {
+            "iata": "LHR",
+            "scheduled": "2026-05-03T07:00:00+00:00",
+        },
+        "arrival": {
+            "iata": "JFK",
+            "scheduled": "2026-05-03T14:00:00-04:00",
+        },
+        "flight": {"iata": "BA117"},
+    }
+    respx.get(AVI_URL).respond(200, json={"data": [record]})
+
+    async with AviationstackClient(api_key="k") as av:
+        out = await call_get_departure_info({"flight_iata": "BA117"}, aviationstack=av)
+
+    sched = out["flights"][0]["departure_times"]["scheduled"]
+    assert sched["utc"] == "2026-05-03T07:00:00Z"
+    assert sched["local"] == "2026-05-03T07:00:00+00:00"
 
 
 @respx.mock
