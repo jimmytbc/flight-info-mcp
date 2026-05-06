@@ -240,6 +240,8 @@ async def test_live_integration_with_valid_key_returns_parsed_result(caplog):
         async with AviationstackClient(api_key=_LIVE_KEY) as client:
             result = await client.query_flights(flight_iata=flight_iata)
 
+    if isinstance(result, ErrorEnvelope) and result.code == ErrorCode.QUOTA_LIMIT:
+        pytest.skip(f"Aviationstack quota exhausted; rerun later: {result!r}")
     assert isinstance(result, AviationstackResponse), (
         f"expected parsed result with valid key, got {result!r}"
     )

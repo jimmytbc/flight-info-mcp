@@ -87,10 +87,11 @@ async def test_departure_info_returns_utc_and_local_times():
     assert len(out["flights"]) == 1
     flight = out["flights"][0]
     sched = flight["departure_times"]["scheduled"]
-    # Europe/London in May = BST = UTC+1; wire was 07:00 UTC, local is 08:00 BST.
+    # Wire 07:00 with Europe/London (BST = UTC+1 in May): components 07:00
+    # anchor to BST (BUG-03 re-anchor: wire offset is advisory only).
     assert sched == {
-        "utc": "2026-05-03T07:00:00Z",
-        "local": "2026-05-03T08:00:00+01:00",
+        "utc": "2026-05-03T06:00:00Z",
+        "local": "2026-05-03T07:00:00+01:00",
     }
     # Pass-through preserved (no editing of upstream content).
     assert flight["departure"] == _av_record()["departure"]
@@ -145,8 +146,9 @@ async def test_arrival_local_uses_destination_iana_tz_when_wire_is_utc():
         out = await call_get_arrival_info({"flight_iata": "MF8675"}, aviationstack=av)
 
     sched = out["flights"][0]["arrival_times"]["scheduled"]
-    assert sched["utc"] == "2026-05-03T14:00:00Z"
-    assert sched["local"] == "2026-05-03T22:00:00+08:00"
+    # BUG-03 re-anchor: wire components 14:00 anchored to SGT.
+    assert sched["utc"] == "2026-05-03T06:00:00Z"
+    assert sched["local"] == "2026-05-03T14:00:00+08:00"
     # Pass-through: the raw upstream string is unchanged.
     assert out["flights"][0]["arrival"]["scheduled"] == "2026-05-03T14:00:00+00:00"
 
