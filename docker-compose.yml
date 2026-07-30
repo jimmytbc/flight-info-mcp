@@ -2,7 +2,18 @@ services:
   flight_data_mcp:
     build: .
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"   # loopback only: close LAN exposure (unauthenticated server)
+    env_file: .env
+    environment:
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8002
+    restart: unless-stopped
+
+  flight_data_mcp_chatgpt:
+    build: .
+    ports:
+      - "127.0.0.1:8012:8002"
     env_file: .env
     environment:
       - MCP_TRANSPORT=streamable-http
