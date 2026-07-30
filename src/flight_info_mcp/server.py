@@ -40,7 +40,7 @@ async def _run_streamable_http(server: Server) -> None:
     import uvicorn
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
-    from starlette.routing import Mount
+    from starlette.routing import Route
 
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     port = int(os.environ.get("MCP_PORT", "8002"))
@@ -54,13 +54,20 @@ async def _run_streamable_http(server: Server) -> None:
         stateless=True,
     )
 
+    # Exact-match Route, not Mount: Mount 307-redirects bare /mcp to /mcp/,
+    # which redirect-averse clients (curl, some tunnel clients) won't follow.
+    # The class wrapper forces Starlette to treat the endpoint as an ASGI app.
+    class _StreamableHTTPApp:
+        async def __call__(self, scope, receive, send) -> None:
+            await session_manager.handle_request(scope, receive, send)
+
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         async with session_manager.run():
             yield
 
     app = Starlette(
-        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        routes=[Route("/mcp", endpoint=_StreamableHTTPApp())],
         lifespan=lifespan,
     )
 
