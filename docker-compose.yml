@@ -5,7 +5,7 @@ services:
       - "8002:8002"
     env_file: .env
     environment:
-      - MCP_TRANSPORT=sse
+      - MCP_TRANSPORT=streamable-http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8002
     restart: unless-stopped

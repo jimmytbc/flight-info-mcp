@@ -1,7 +1,8 @@
 """MCP server entry point.
 
-Supports stdio (default) and SSE transport; selected via MCP_TRANSPORT env var.
-The clients share a single ``httpx.AsyncClient`` whose lifetime spans ``run()``.
+Supports stdio (default) and streamable HTTP transport; selected via
+MCP_TRANSPORT env var. The clients share a single ``httpx.AsyncClient`` whose
+lifetime spans ``run()``.
 """
 from __future__ import annotations
 
@@ -27,40 +28,49 @@ def build_server(
     aviationstack: AviationstackClient,
     opensky: OpenSkyClient,
 ) -> Server:
-    server = Server(SERVER_NAME)
+    server = Server(SERVER_NAME, version=SERVER_VERSION)
     register_tools(server, aviationstack=aviationstack, opensky=opensky)
     return server
 
 
-async def _run_sse(server: Server, init_options: InitializationOptions) -> None:
+async def _run_streamable_http(server: Server) -> None:
+    import contextlib
+    from collections.abc import AsyncIterator
+
     import uvicorn
-    from mcp.server.sse import SseServerTransport
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
-    from starlette.requests import Request
-    from starlette.responses import Response
-    from starlette.routing import Mount, Route
+    from starlette.routing import Mount
 
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     port = int(os.environ.get("MCP_PORT", "8002"))
 
-    sse = SseServerTransport("/messages/")
+    # stateless=True: fresh transport per request, no session tracking —
+    # required by this server's no-session invariant (CLAUDE.md #4).
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=False,
+        stateless=True,
+    )
 
-    async def handle_sse(scope, receive, send):
-        async with sse.connect_sse(scope, receive, send) as streams:
-            await server.run(streams[0], streams[1], init_options)
-        return Response()
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        async with session_manager.run():
+            yield
 
-    async def sse_endpoint(request: Request) -> Response:
-        return await handle_sse(request.scope, request.receive, request._send)
-
-    app = Starlette(routes=[
-        Route("/sse", endpoint=sse_endpoint, methods=["GET"]),
-        Mount("/messages/", app=sse.handle_post_message),
-    ])
+    app = Starlette(
+        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        lifespan=lifespan,
+    )
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     uv_server = uvicorn.Server(config)
-    log.info("flight-info-mcp SSE server listening on %s:%d", host, port)
+    log.info(
+        "flight-info-mcp streamable HTTP server listening on %s:%d at /mcp",
+        host,
+        port,
+    )
     await uv_server.serve()
 
 
@@ -87,9 +97,14 @@ async def run(config: Config) -> None:
                 experimental_capabilities={},
             ),
         )
-        if transport == "sse":
-            await _run_sse(server, init_options)
-        else:
+        if transport == "streamable-http":
+            await _run_streamable_http(server)
+        elif transport == "stdio":
             async with stdio_server() as (read_stream, write_stream):
                 await server.run(read_stream, write_stream, init_options)
+        else:
+            raise ValueError(
+                f"Unsupported MCP_TRANSPORT={transport!r}: use 'stdio' or "
+                "'streamable-http' (legacy 'sse' transport removed)"
+            )
     log.info("flight-info-mcp stopped")
